@@ -12,3 +12,4 @@ deploy:
   file: "${NAR_FILE}"
   on:
     repo: SwingDev/nifi-file-from-template-processor
+    tags: true
