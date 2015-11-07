@@ -1,3 +1,14 @@
 language: java
 jdk:
   - oraclejdk8
+
+before_deploy:
+  - "mvn -DskipTests package"
+  - export NAR_FILE=$(ls nifi-filefromtemplate-nar/target/nifi-filefromtemplate-nar-*.nar)
+deploy:
+  provider: releases
+  api_key:
+    secure: WA3r1NSqlWh1GKcCwGoIfj0yhc/A5/Nofz5KtEMqG/Sv4adzB3yWVwczrRlnrAcq+ojWuOoOI6rpfvcg95oAm5UgJAHF1v8/YBJfoeFkNw470UWkJVgPig9EeVKsCL+r+eLwcNKoNfmNQ4S4tY314DqtEBGlkijt9fsnVjG2mXKhf0rstYF7r5zu6KyvkBND/8FvFfE47V208eub/YP2yEZZFwGGrNEmqDYe84P4gVU2tAJUWShWV3Y15J1THXCLZ0FEINx7vVSEJovhHqLxA/besM3QIY6EznS3aeg+LJfO/87z9KtCJW34UiU5ZedZCFrNNBOYKm0UC7uTvBKv/IXoVQDv8jJsVNWxCm0KTACXKc3OjMJ3mVsw8/SpbDCwoVuRVwyHCXCD1J0QT0LaYDGdllPe3kqTSjONCzWYn4h/T03pX89alKHg9NunEAwbLV+ll4jWQUy3MECt7FpfTju8p4QuQHwUSJBHdNumofTGa+t/Juju2dO8ZdRnO46Fr9V/B+x2+7Ppqt2dQi6AA4Kyhddj/hW6khm7KGl3EzdPeVXmU32XNamXN8Kp8eYu/c+j3eUyaTjhLxbey8yhfvi6N4r1MzYDWOEeH2D983s5+P9QDjKRUJfjtob6b0wYtA3ziLRHj5o4KB5841g45qCfUAlwCojxISf31BKCKDM=
+  file: "${NAR_FILE}"
+  on:
+    repo: SwingDev/nifi-file-from-template-processor
