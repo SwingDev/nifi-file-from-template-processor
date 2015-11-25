@@ -6,6 +6,10 @@ import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Maps;
 import com.hubspot.jinjava.Jinjava;
+import com.hubspot.jinjava.JinjavaConfig;
+import com.hubspot.jinjava.interpret.FatalTemplateErrorsException;
+import com.hubspot.jinjava.interpret.JinjavaInterpreter;
+import com.hubspot.jinjava.loader.ResourceLocator;
 import org.apache.commons.io.FileUtils;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
 import org.apache.nifi.annotation.behavior.WritesAttributes;
@@ -14,6 +18,7 @@ import org.apache.nifi.annotation.documentation.SeeAlso;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.components.PropertyDescriptor;
+import org.apache.nifi.components.Validator;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.logging.ProcessorLog;
 import org.apache.nifi.processor.*;
@@ -24,6 +29,9 @@ import org.apache.nifi.processor.util.StandardValidators;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.Charset;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 
 @Tags({"template", "jinja", "json"})
@@ -42,8 +50,23 @@ public class PutFileFromTemplate extends AbstractProcessor {
     public static final PropertyDescriptor TEMPLATE_PROPERTY = new PropertyDescriptor
             .Builder().name("Template")
             .description("Jinja2 Template")
-            .required(true)
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .defaultValue(null)
+            .required(false)
+            .addValidator(Validator.VALID)
+            .build();
+
+    public static final PropertyDescriptor TEMPLATE_PATH_PROPERTY = new PropertyDescriptor
+            .Builder().name("Template Path")
+            .description("Jinja2 Template Path")
+            .required(false)
+            .addValidator(StandardValidators.FILE_EXISTS_VALIDATOR)
+            .build();
+
+    public static final PropertyDescriptor TEMPLATE_RESOURCES_PATH_PROPERTY = new PropertyDescriptor
+            .Builder().name("Resources Path")
+            .description("Jinja2 Path To All The Included Resources")
+            .required(false)
+            .addValidator(StandardValidators.FILE_EXISTS_VALIDATOR)
             .build();
 
     public static final PropertyDescriptor FILE_PREFIX_PROPERTY = new PropertyDescriptor
@@ -128,8 +151,14 @@ public class PutFileFromTemplate extends AbstractProcessor {
         return templateContext;
     }
 
-    String getTemplate(final ProcessContext context) {
-        return context.getProperty(TEMPLATE_PROPERTY).getValue();
+    String getTemplate(final ProcessContext context) throws IOException {
+        String templateFilePath = context.getProperty(TEMPLATE_PATH_PROPERTY).getValue();
+
+        if (templateFilePath == null) {
+            return context.getProperty(TEMPLATE_PROPERTY).getValue();
+        } else {
+            return FileUtils.readFileToString(new File(templateFilePath));
+        }
     }
 
     File createOutputFile(final ProcessContext context) throws IOException{
@@ -143,6 +172,8 @@ public class PutFileFromTemplate extends AbstractProcessor {
     protected void init(final ProcessorInitializationContext context) {
         final List<PropertyDescriptor> descriptors = new ArrayList<PropertyDescriptor>();
         descriptors.add(PARSE_JSON_CONTENT_PROPERTY);
+        descriptors.add(TEMPLATE_RESOURCES_PATH_PROPERTY);
+        descriptors.add(TEMPLATE_PATH_PROPERTY);
         descriptors.add(TEMPLATE_PROPERTY);
         descriptors.add(FILE_PREFIX_PROPERTY);
         descriptors.add(FILE_SUFFIX_PROPERTY);
@@ -166,11 +197,46 @@ public class PutFileFromTemplate extends AbstractProcessor {
         return descriptors;
     }
 
+    public final String pathToResource(final ProcessContext context, String fullName) {
+        String templateResourcesPath = context.getProperty(TEMPLATE_RESOURCES_PATH_PROPERTY).getValue();
+
+        if (templateResourcesPath != null) {
+            return Paths.get(templateResourcesPath, fullName).toAbsolutePath().toString();
+        }
+
+        String templateFilePath = context.getProperty(TEMPLATE_PATH_PROPERTY).getValue();
+
+        if (templateFilePath == null) {
+            return null;
+        }
+
+        String templateFileContainingPath = Paths.get(templateFilePath).getParent().toAbsolutePath().toString();
+
+        return Paths.get(templateFileContainingPath, fullName).toAbsolutePath().toString();
+    }
+
     @OnScheduled
     public void onScheduled(final ProcessContext context) {
+        final PutFileFromTemplate processor = this;
+
         jsonMapper = new ObjectMapper();
         jsonFactory = jsonMapper.getFactory();
-        jinjava = new Jinjava();
+
+        JinjavaConfig config = new JinjavaConfig();
+        jinjava = new Jinjava(config);
+
+        jinjava.setResourceLocator(new ResourceLocator() {
+            @Override
+            public String getString(String fullName, Charset encoding, JinjavaInterpreter interpreter) throws IOException {
+                String pathToResource = processor.pathToResource(context, fullName);
+
+                try {
+                    return FileUtils.readFileToString(new File(pathToResource), encoding);
+                } catch (IOException e) {
+                    return null;
+                }
+            }
+        });
     }
 
     @Override
@@ -182,7 +248,16 @@ public class PutFileFromTemplate extends AbstractProcessor {
 
         final ProcessorLog logger = getLogger();
 
-        final String template = getTemplate(context);
+        String template;
+        try {
+            template = getTemplate(context);
+        } catch (IOException e) {
+            logger.error("Could not read the template file.");
+            session.transfer(flowFile, FAILURE_RELATIONSHIP);
+
+            return;
+        }
+
         Map<String, Object> templateContext;
         try {
             templateContext = templateContextFromFlowFile(context, session, flowFile);
@@ -193,7 +268,15 @@ public class PutFileFromTemplate extends AbstractProcessor {
             return;
         }
 
-        final String renderedTemplate = jinjava.render(template, templateContext);
+        String renderedTemplate;
+        try {
+            renderedTemplate = jinjava.render(template, templateContext);
+        } catch (FatalTemplateErrorsException e) {
+            logger.error("Template rendering problem: {}", new Object[]{e.toString()});
+            session.transfer(flowFile, FAILURE_RELATIONSHIP);
+
+            return;
+        }
 
         File outputFile;
         try {

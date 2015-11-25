@@ -43,6 +43,79 @@ public class PutFileFromTemplateTest {
     }
 
     @Test
+    public void testSimpleTemplateFromPath() throws Exception {
+        final TestRunner testRunner = TestRunners.newTestRunner(new PutFileFromTemplate());
+        testRunner.setProperty(PutFileFromTemplate.TEMPLATE_PATH_PROPERTY, Paths.get("src/test/resources/simple.j2").toAbsolutePath().toString());
+
+        ProcessSession session = testRunner.getProcessSessionFactory().createSession();
+        FlowFile ff = session.create();
+
+        testRunner.enqueue(ff);
+        testRunner.run();
+
+        MockFlowFile successFlowFile = testRunner.getFlowFilesForRelationship(PutFileFromTemplate.SUCCESS_RELATIONSHIP).get(0);
+        successFlowFile.assertAttributeExists(PutFileFromTemplate.DEFAULT_OUTPUT_PATH_SAVED_IN_ATTRIBUTE);
+
+        String outputFilePath = successFlowFile.getAttribute(PutFileFromTemplate.DEFAULT_OUTPUT_PATH_SAVED_IN_ATTRIBUTE);
+        String renderedTemplate = FileUtils.readFileToString(new File(outputFilePath));
+
+        assertEquals(renderedTemplate, "hello");
+
+        testRunner.assertTransferCount(PutFileFromTemplate.SUCCESS_RELATIONSHIP, 1);
+        testRunner.assertTransferCount(PutFileFromTemplate.FAILURE_RELATIONSHIP, 0);
+        testRunner.assertTransferCount(PutFileFromTemplate.JSON_PARSING_FAILURE_RELATIONSHIP, 0);
+    }
+
+    @Test
+    public void testSimpleTemplateFromPathWithIncludes() throws Exception {
+        final TestRunner testRunner = TestRunners.newTestRunner(new PutFileFromTemplate());
+        testRunner.setProperty(PutFileFromTemplate.TEMPLATE_PATH_PROPERTY, Paths.get("src/test/resources/including.j2").toAbsolutePath().toString());
+
+        ProcessSession session = testRunner.getProcessSessionFactory().createSession();
+        FlowFile ff = session.create();
+
+        testRunner.enqueue(ff);
+        testRunner.run();
+
+        MockFlowFile successFlowFile = testRunner.getFlowFilesForRelationship(PutFileFromTemplate.SUCCESS_RELATIONSHIP).get(0);
+        successFlowFile.assertAttributeExists(PutFileFromTemplate.DEFAULT_OUTPUT_PATH_SAVED_IN_ATTRIBUTE);
+
+        String outputFilePath = successFlowFile.getAttribute(PutFileFromTemplate.DEFAULT_OUTPUT_PATH_SAVED_IN_ATTRIBUTE);
+        String renderedTemplate = FileUtils.readFileToString(new File(outputFilePath));
+
+        assertEquals(renderedTemplate, "including: YES\nincluded: YES");
+
+        testRunner.assertTransferCount(PutFileFromTemplate.SUCCESS_RELATIONSHIP, 1);
+        testRunner.assertTransferCount(PutFileFromTemplate.FAILURE_RELATIONSHIP, 0);
+        testRunner.assertTransferCount(PutFileFromTemplate.JSON_PARSING_FAILURE_RELATIONSHIP, 0);
+    }
+
+    @Test
+    public void testSimpleTemplateFromPathWithIncludesFromResourcePath() throws Exception {
+        final TestRunner testRunner = TestRunners.newTestRunner(new PutFileFromTemplate());
+        testRunner.setProperty(PutFileFromTemplate.TEMPLATE_PATH_PROPERTY, Paths.get("src/test/resources/including.j2").toAbsolutePath().toString());
+        testRunner.setProperty(PutFileFromTemplate.TEMPLATE_RESOURCES_PATH_PROPERTY, Paths.get("src/test/resources/include-test").toAbsolutePath().toString());
+
+        ProcessSession session = testRunner.getProcessSessionFactory().createSession();
+        FlowFile ff = session.create();
+
+        testRunner.enqueue(ff);
+        testRunner.run();
+
+        MockFlowFile successFlowFile = testRunner.getFlowFilesForRelationship(PutFileFromTemplate.SUCCESS_RELATIONSHIP).get(0);
+        successFlowFile.assertAttributeExists(PutFileFromTemplate.DEFAULT_OUTPUT_PATH_SAVED_IN_ATTRIBUTE);
+
+        String outputFilePath = successFlowFile.getAttribute(PutFileFromTemplate.DEFAULT_OUTPUT_PATH_SAVED_IN_ATTRIBUTE);
+        String renderedTemplate = FileUtils.readFileToString(new File(outputFilePath));
+
+        assertEquals(renderedTemplate, "including: YES\nincluded: YES from include-test");
+
+        testRunner.assertTransferCount(PutFileFromTemplate.SUCCESS_RELATIONSHIP, 1);
+        testRunner.assertTransferCount(PutFileFromTemplate.FAILURE_RELATIONSHIP, 0);
+        testRunner.assertTransferCount(PutFileFromTemplate.JSON_PARSING_FAILURE_RELATIONSHIP, 0);
+    }
+
+    @Test
     public void testPrefixSuffix() throws Exception {
         final TestRunner testRunner = TestRunners.newTestRunner(new PutFileFromTemplate());
         testRunner.setProperty(PutFileFromTemplate.TEMPLATE_PROPERTY, "hello");
